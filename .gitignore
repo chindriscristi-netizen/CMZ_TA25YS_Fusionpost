@@ -1,0 +1,5 @@
+# IDE settings
+.idea/
+
+# Manuals are large reference files (about 110 MB) and are kept in the folder, not in git
+*.pdf
