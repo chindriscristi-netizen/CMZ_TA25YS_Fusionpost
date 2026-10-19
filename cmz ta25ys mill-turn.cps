@@ -57,6 +57,18 @@
 //   Safe position  G53 G0 X0. / G53 G0 Y0. / G53 G0 Z-120. (like program 3001);
 //                  X, Y and Z are settings under "Safe positions"
 //
+// SUB-SPINDLE POSITIONS (B-AXIS)
+//   B is programmed with MACHINE values: B0 = sub-spindle home, working positions are
+//   negative (manual 8.1: B-420 / B-469.5 / B-472). In the Fusion Subspindle Grab, Pull
+//   and Return operations set the positions to "Machine position". Read the values on
+//   the control: jog the sub-spindle to the part and note the machine B value.
+//
+// BAR PULL (Fusion "Subspindle Pull", after a Subspindle Grab)
+//   M11               open the main chuck
+//   G4 U..            wait
+//   G98 G1 B.. F..    sub-spindle pulls the bar out at the feed (never a rapid)
+//   M10               close the main chuck on the bar again
+//
 // PART TRANSFER TO THE SUB-SPINDLE (Fusion "Subspindle grab")     [8.1, 9.6]
 //   G97 S.. M3        main spindle turns at the transfer speed
 //   M54 M254          air blow on both chucks
@@ -82,6 +94,12 @@
 //     usePolarCoordinates        - force C-axis positioning (no Y) for the next operation
 //     syncSpindleStart:error, unclamp, speed - what to do when a spindle start is
 //                                  needed while both chucks hold the part
+//
+// COMMENTS IN THE NC PROGRAM
+//   "Explain codes" adds a short comment after machine codes: M80 (C-AXIS ON MAIN SPINDLE).
+//   "Explain cycle values" writes comment lines above G76/G92 threading, G83/G87 drilling,
+//   M329 tapping, G71/G72 roughing and G38, saying what each value means and how to
+//   change it at the machine, e.g. (TO CUT DEEPER INCREASE X IN LINE 2 ...).
 //
 // BEFORE THE FIRST REAL CUT - CHECK AT THE MACHINE
 //   - Y-axis travel limits: set to +70 / -50 mm from the TA25YS data sheet;
@@ -216,7 +234,7 @@ properties = {
     title      : "Use part catcher",
     description: "When an operation has 'Part catcher' ticked in Fusion, output M73 (catcher IN) before the cut-off and M74 (catcher OUT) after it, each with a short wait (G4).",
     group      : "cmzTransfer",
-    order      : 6,
+    order      : 7,
     type       : "boolean",
     value      : true,
     scope      : "post"
@@ -225,7 +243,7 @@ properties = {
     title      : "Sub-spindle position for part catcher (B, machine)",
     description: "Machine B position (G53 B) the sub-spindle moves to before the part catcher is used at the end of the program. 0 = do not move the sub-spindle.",
     group      : "cmzTransfer",
-    order      : 7,
+    order      : 8,
     type       : "number",
     range      : [-1000, 0],
     value      : 0,
@@ -335,7 +353,7 @@ properties = {
     title      : "Optional stop between tools (M1)",
     description: "Output M1 before every tool change. The machine only stops there when the OPTIONAL STOP button is on. Very useful when proving out a new program.",
     group      : "cmzFormat",
-    order      : 6,
+    order      : 7,
     type       : "boolean",
     value      : true,
     scope      : "post"
@@ -353,7 +371,7 @@ properties = {
     title      : "Eject part at program end",
     description: "Yes = at the end of the program the finished part is ejected (M47 main / M247 sub, with part catcher M73/M74 if enabled).",
     group      : "cmzTransfer",
-    order      : 8,
+    order      : 9,
     type       : "enum",
     values     : [
       {title:"Yes", id:"true"},
@@ -478,9 +496,9 @@ properties = {
   },
   useG53ForXfer: {
     title      : "Sub-spindle Machine position control",
-    description: "Select how Machine Positions are output in a chuck plane operation. \n G53 = in rapid mode with G53, \n G53.2 = in feed mode (must have G53.2 enabled on control), \n Linear = in G01 feed mode, \n Not supported = will generate an error if Machine position is specified as the Chuck Plane Mode",
+    description: "Not used on the TA25YS: sub-spindle positions are always written as B machine values (G0 B.., G98 G1 B.. F..).",
     group      : "cmzTransfer",
-    order      : 9,
+    order      : 10,
     type       : "enum",
     values     : [
       {title:"G53", id:"g53"},
@@ -533,11 +551,21 @@ properties = {
     value      : 400,
     scope      : "post"
   },
+  transferPushFeed: {
+    title      : "G38 push feed (mm/min)",
+    description: "Feed of the sub-spindle during the G38 push (the last 1 mm and the push itself). The Fusion feedrate is only used to approach to 1 mm before the part. CMZ example: F10. Keep it slow, the push is checked by force.",
+    group      : "cmzTransfer",
+    order      : 4,
+    type       : "number",
+    range      : [1, 200],
+    value      : 10,
+    scope      : "post"
+  },
   transferTolerance: {
     title      : "G38 position tolerance (mm)",
     description: "How far the push position may be from the programmed position before alarm 3011 (Q word). CMZ default is 1 mm.",
     group      : "cmzTransfer",
-    order      : 4,
+    order      : 5,
     type       : "spatial",
     range      : [0, 10],
     value      : 1,
@@ -547,7 +575,7 @@ properties = {
     title      : "Count parts (M35)",
     description: "Output M35 at the end of the program to add 1 to the part counter.",
     group      : "cmzFormat",
-    order      : 7,
+    order      : 8,
     type       : "boolean",
     value      : true,
     scope      : "post"
@@ -556,7 +584,7 @@ properties = {
     title      : "Check cut-off (M40)",
     description: "After parting off into the sub-spindle, M40 checks that the part is really cut through (alarm FM41 if not), then M36 switches the synchronisation off.",
     group      : "cmzTransfer",
-    order      : 5,
+    order      : 6,
     type       : "enum",
     values     : [
       {title:"M40", id:"true"},
@@ -604,12 +632,31 @@ properties = {
   },
   numberOfRepeats: {
     title      : "Number of repeats",
-    description: "How many times the program repeats when 'Repeat the program' is on.",
+    description: "How many times the program repeats when 'Repeat the program' is on (1-9999).",
     group      : "looping",
     order      : 2,
     type       : "integer",
-    range      : [0, 99999999],
+    range      : [1, 9999],
     value      : 1,
+    scope      : "post"
+  },
+  loopSubprogramNumber: {
+    title      : "Subprogram number",
+    description: "Program number (O) for the repeated part when 'Repeat the program' is on. 0 = program number + 1.",
+    group      : "looping",
+    order      : 3,
+    type       : "integer",
+    range      : [0, 9999],
+    value      : 0,
+    scope      : "post"
+  },
+  explainCycles: {
+    title      : "Explain cycle values in the NC program",
+    description: "Write comment lines above threading, drilling, tapping, roughing and transfer cycles that say what each value means and how to change it at the machine (e.g. which way to change X to cut a thread deeper).",
+    group      : "cmzFormat",
+    order      : 6,
+    type       : "boolean",
+    value      : true,
     scope      : "post"
   },
   explainCodes: {
@@ -625,7 +672,7 @@ properties = {
     title      : "Write post version",
     description: "Write the post version and date as comments at the top of the program.",
     group      : "cmzFormat",
-    order      : 10,
+    order      : 11,
     type       : "boolean",
     value      : false,
     scope      : "post"
@@ -634,7 +681,7 @@ properties = {
     title      : "Spaces between words",
     description: "Yes = 'G0 X10. Z5.'. No = 'G0X10.Z5.'. Code explanations need spaces.",
     group      : "cmzFormat",
-    order      : 11,
+    order      : 12,
     type       : "boolean",
     value      : true,
     scope      : "post"
@@ -643,7 +690,7 @@ properties = {
     title      : "Write operation notes",
     description: "Write the notes typed in Fusion operations as comments in the program.",
     group      : "cmzFormat",
-    order      : 8,
+    order      : 9,
     type       : "boolean",
     value      : false,
     scope      : "post"
@@ -652,7 +699,7 @@ properties = {
     title      : "Write machine name",
     description: "Write the machine name as a comment at the top of the program.",
     group      : "cmzFormat",
-    order      : 9,
+    order      : 10,
     type       : "boolean",
     value      : false,
     scope      : "post"
@@ -1118,13 +1165,47 @@ var codeExplanations = {
   M481: "C-AXES UNCOUPLED",
   "G12.1": "POLAR INTERPOLATION ON",
   "G13.1": "POLAR INTERPOLATION OFF",
+  G4  : "WAIT, U = SECONDS",
   G38 : "PUSH CHECK AND CLAMP SUB CHUCK",
   G50 : "MAX SPINDLE SPEED",
   G76 : "THREADING CYCLE",
   G83 : "FRONT DRILLING CYCLE",
   G87 : "SIDE DRILLING CYCLE",
-  G92 : "THREADING CYCLE"
+  G92 : "THREADING CYCLE",
+  G96 : "S = CUTTING SPEED M/MIN",
+  G97 : "S = RPM",
+  G98 : "FEED MM/MIN",
+  G99 : "FEED MM/REV"
 };
+
+/** Writes comment lines that explain the values of a cycle, so they can be changed at the machine. Empty lines are skipped. */
+function writeExplanation(lines) {
+  if (!getProperty("explainCycles")) {
+    return;
+  }
+  for (var i = 0; i < lines.length; ++i) {
+    if (lines[i]) {
+      writeComment(lines[i]);
+    }
+  }
+}
+
+/** Two-digit text for the G76 P word, e.g. 1 -> "01". */
+function twoDigits(value) {
+  return (value < 10 ? "0" : "") + value;
+}
+
+/** Explanation for the G83/G87 (and G85/G89) drilling cycles. */
+function explainDrillingCycle(code, plane, dwell, peck, brake) {
+  var side = plane == 19;
+  writeExplanation([
+    "G" + code + (side ? " SIDE" : " FRONT") + " CYCLE - VALUES YOU CAN CHANGE",
+    (side ? "X = HOLE BOTTOM DIAMETER" : "Z = HOLE BOTTOM") + ", R = WHERE FEED STARTS, INCREMENTAL FROM THE START POINT",
+    (peck > 0) ? "Q" + peckFormat.format(peck) + " = PECK DEPTH " + spatialFormat.format(peck) + " MM, WRITTEN IN 0.001 MM WITHOUT POINT" : "NO Q = DRILL TO THE BOTTOM IN ONE GO",
+    (dwell > 0) ? "P" + dwell + " = WAIT AT THE BOTTOM IN MILLISECONDS" : "",
+    "F = FEED " + (machineState.feedPerRevolution ? "MM/REV" : "MM/MIN") + (brake ? ", M50 = BRAKE HOLDS THE PART WHILE DRILLING" : "")
+  ]);
+}
 
 /** Returns a comment explaining the codes in the given block text, or "" when nothing needs explaining. */
 function explainCodes(text) {
@@ -1370,8 +1451,8 @@ function onOpen() {
   sequenceNumber = getProperty("sequenceNumberStart");
   writeln("%");
 
+  var programId;
   if (programName) {
-    var programId;
     try {
       programId = getAsInt(programName);
     } catch (e) {
@@ -1483,23 +1564,24 @@ function onOpen() {
 
   // support program looping for bar work
   if (getProperty("looping")) {
-    if (getProperty("numberOfRepeats") < 1) {
-      error(localize("numberOfRepeats must be greater than 0."));
+    var repeats = getProperty("numberOfRepeats");
+    if ((repeats < 1) || (repeats > 9999)) {
+      error(localize("numberOfRepeats must be between 1 and 9999."));
       return;
     }
-    if (sequenceNumber == 1) {
-      sequenceNumber++;
+    var subprogramId = getProperty("loopSubprogramNumber") || (programId + 1);
+    if ((subprogramId < 1) || (subprogramId > 9999) || (subprogramId == programId)) {
+      error(localize("Subprogram number must be 1-9999 and different from the program number."));
+      return;
     }
-    writeln("");
+    // CMZ embedded P format: leading digits = repeats, last 4 digits = subprogram number
     writeln("");
     writeComment(localize("Local Looping"));
-    writeln("");
-    writeBlock(mFormat.format(98), "Q1", "L" + getProperty("numberOfRepeats"));
+    writeBlock(mFormat.format(98), "P" + repeats + oFormat.format(subprogramId));
     onCommand(COMMAND_OPEN_DOOR);
     writeBlock(mFormat.format(30));
     writeln("");
-    writeln("");
-    writeln("N1 (START MAIN PROGRAM)");
+    writeln("O" + oFormat.format(subprogramId) + " (START MAIN PROGRAM)");
   }
 
   writeBlock(
@@ -3570,16 +3652,25 @@ function onCycle() {
     case "secondary-spindle-return":
     case "secondary-spindle-pull":
       var pullMethod = getSecondaryPullMethod(cycleType);
-      if (!machineState.stockTransferIsActive) {
+      if (!machineState.stockTransferIsActive || (pullMethod.pull && (chuckSubPosition == undefined))) {
         if (pullMethod.pull) {
-          error(localize("The part must be chucked prior to a pull operation."));
+          error(localize("The bar must be grabbed by the sub-spindle before a pull. Put a Subspindle Grab operation directly before the Subspindle Pull."));
           return;
         }
       }
-      // bar pull
+      // bar pull: the sub-spindle holds the bar, the main chuck opens and the sub-spindle pulls the bar out
       if (pullMethod.pull) {
+        if (!(cycle.feedrate > 0)) {
+          error(localize("The bar pull needs a feedrate. Set the feedrate in the Subspindle Pull operation."));
+          return;
+        }
+        writeExplanation([
+          "BAR PULL - MAIN CHUCK OPENS, SUB-SPINDLE PULLS THE BAR TO B" + spatialFormat.format(pullMethod.pullPosition),
+          "B = END POSITION OF THE PULL, MACHINE VALUE, F = PULL FEED MM/MIN",
+          "PULL DISTANCE " + spatialFormat.format(Math.abs(pullMethod.pullPosition - chuckSubPosition)) + " MM - TO PULL MORE MOVE B AWAY FROM THE MAIN SPINDLE"
+        ]);
         clampChuck(getSpindle(PART), UNCLAMP);
-        onDwell(cycle.dwell);
+        onDwell(Math.max(cycle.dwell, 0.5));
         moveSubSpindle(FEED, pullMethod.pullPosition, cycle.feedrate, pullMethod.machineFrame, "BAR PULL", true);
       }
 
@@ -3654,6 +3745,11 @@ function onCyclePathEnd() {
   // output cycle data
   switch (cycleType) {
   case "turning-canned-rough":
+    writeExplanation([
+      verticalPasses ? "G72 FACE ROUGHING - W = DEPTH OF CUT PER PASS, R = RETRACT" : "G71 ROUGHING - U = DEPTH OF CUT PER PASS ON RADIUS, R = RETRACT",
+      "P / Q = FIRST AND LAST LINE OF THE PROFILE, DO NOT CHANGE",
+      "U = FINISH ALLOWANCE X ON DIAMETER, W = FINISH ALLOWANCE Z, F = FEED"
+    ]);
     writeBlock(gFormat.format(verticalPasses ? 72 : 71),
       (verticalPasses ? "W" : "U") + spatialFormat.format(cycle.depthOfCut),
       "R" + spatialFormat.format(cycle.retractLength)
@@ -3828,6 +3924,14 @@ function onCyclePoint(x, y, z) {
       (hasParameter("operation:doMultipleThreads") && (getParameter("operation:doMultipleThreads") != 0)) ||
       (hasParameter("operation:infeedMode") && (getParameter("operation:infeedMode") != "constant"))) {
       var r = -cycle.incrementalX; // positive if taper goes down - delta radius
+      if (isFirstCyclePoint()) {
+        var internalThread = xFormat.getResultingValue(x) > xFormat.getResultingValue(getCurrentPosition().x);
+        writeExplanation([
+          (internalThread ? "INTERNAL" : "EXTERNAL") + " THREAD PITCH " + pitchFormat.format(cycle.pitch) + " - G92 ONE LINE PER PASS",
+          "X = DIAMETER OF THE PASS, Z = THREAD END, F = PITCH",
+          "TO CUT DEEPER " + (internalThread ? "INCREASE" : "DECREASE") + " X ON THE LAST LINE OR CHANGE THE X WEAR OFFSET"
+        ]);
+      }
       moveToThreadStart(x, y, z);
       xOutput.reset();
       zOutput.reset();
@@ -3856,6 +3960,21 @@ function onCyclePoint(x, y, z) {
         var materialAllowance = 0; // Material allowance for finishing pass
         var cuttingAngle = getParameter("operation:infeedAngle", 30) * 2; // Angle is not stored with tool. toDeg(tool.getTaperAngle());
         var pcode = repeatPass * 10000 + chamferWidth * 100 + cuttingAngle;
+        var taper = -cycle.incrementalX;
+        var internalThread = xFormat.getResultingValue(x) > xFormat.getResultingValue(getCurrentPosition().x); // cuts outwards
+        writeExplanation([
+          (internalThread ? "INTERNAL" : "EXTERNAL") + " THREAD PITCH " + pitchFormat.format(cycle.pitch) + " - G76 VALUES YOU CAN CHANGE",
+          "LINE 1 P" + threadP1Format.format(pcode) + " - " + twoDigits(repeatPass) + " = FINISH PASSES, " + twoDigits(chamferWidth) +
+            " = END CHAMFER " + spatialFormat.format(chamferWidth / 10) + " X PITCH, " + twoDigits(cuttingAngle) +
+            ((cuttingAngle == 0) ? " = STRAIGHT INFEED" : " = INFEED ALONG THE FLANK, TOOL ANGLE DEG"),
+          "LINE 1 Q" + threadPQFormat.format(minimumDepthOfCut) + " = SMALLEST CUT " + spatialFormat.format(minimumDepthOfCut) +
+            " MM, R" + threadPQFormat.format(materialAllowance) + " = FINISH ALLOWANCE, BOTH IN 0.001 MM",
+          "LINE 2 X" + xFormat.format(x) + " = FINAL " + (internalThread ? "MAJOR" : "MINOR") + " DIAMETER, Z" + zFormat.format(z) + " = THREAD END",
+          "LINE 2 P" + threadPQFormat.format(threadHeight) + " = THREAD HEIGHT " + spatialFormat.format(threadHeight) +
+            " MM, Q" + threadPQFormat.format(firstDepthOfCut) + " = FIRST CUT " + spatialFormat.format(firstDepthOfCut) + " MM, F = PITCH",
+          zFormat.isSignificant(taper) ? "LINE 2 R = TAPER, RADIUS DIFFERENCE START TO END" : "",
+          "TO CUT DEEPER " + (internalThread ? "INCREASE" : "DECREASE") + " X IN LINE 2 OR CHANGE THE X WEAR OFFSET"
+        ]);
         gCycleModal.reset();
         writeBlock(
           gCycleModal.format(76),
@@ -3900,6 +4019,7 @@ function onCyclePoint(x, y, z) {
     case "counter-boring":
       writeCycleClearance(plane, cycle.clearance);
       localZOutput.reset();
+      explainDrillingCycle(plane == 19 ? 87 : 83, plane, P, 0, lockCode);
       writeBlock(
         gCycleModal.format(plane == 19 ? 87 : 83),
         getCommonCycle(x, y, z, rapto, true),
@@ -3914,6 +4034,7 @@ function onCyclePoint(x, y, z) {
       } else {
         writeCycleClearance(plane, cycle.clearance);
         localZOutput.reset();
+        explainDrillingCycle(plane == 19 ? 87 : 83, plane, P, cycle.incrementalDepth, lockCode);
         writeBlock(
           gCycleModal.format(plane == 19 ? 87 : 83),
           getCommonCycle(x, y, z, rapto, true),
@@ -3927,6 +4048,7 @@ function onCyclePoint(x, y, z) {
     case "deep-drilling":
       writeCycleClearance(plane, cycle.clearance);
       localZOutput.reset();
+      explainDrillingCycle(plane == 19 ? 87 : 83, plane, P, cycle.incrementalDepth, lockCode);
       writeBlock(
         gCycleModal.format(plane == 19 ? 87 : 83),
         getCommonCycle(x, y, z, rapto, true),
@@ -3945,6 +4067,13 @@ function onCyclePoint(x, y, z) {
       writeBlock(mFormat.format(getCode("STOP_SPINDLE", getSpindle(TOOL))));
       gSpindleModeModal.reset();
       writeBlock(gSpindleModeModal.format(getCode("CONSTANT_SURFACE_SPEED_OFF", getSpindle(TOOL))));
+      writeExplanation([
+        "M329 RIGID TAPPING - VALUES YOU CAN CHANGE",
+        "H = HOLE BOTTOM, ABSOLUTE " + ((plane == 19) ? "X DIAMETER" : "Z") + ", X Y Z = START POINT",
+        "F = PITCH, MUST MATCH THE TAP, S = RPM, MAX 1000 SPINDLE OR 3000 LIVE TOOL",
+        "I0 = RIGHT HAND, I1 = LEFT HAND, B = DEPTH PER PECK IF USED",
+        "T = CMZ TAPPING MODE, DO NOT CHANGE"
+      ]);
       writeRigidTapping(x, y, z, plane);
       break;
     case "boring":
@@ -3954,6 +4083,7 @@ function onCyclePoint(x, y, z) {
       }
       writeCycleClearance(plane, cycle.clearance);
       localZOutput.reset();
+      explainDrillingCycle(plane == 19 ? 89 : 85, plane, P, 0, lockCode);
       writeBlock(
         gCycleModal.format(plane == 19 ? 89 : 85),
         getCommonCycle(x, y, z, rapto, true),
@@ -4411,6 +4541,15 @@ function moveSubSpindle(_method, _position, _feed, _useMachineFrame, _comment, _
     return;
   }
   if (_method != HOME) {
+    // The CMZ B-axis is programmed with machine values: B0 = sub-spindle home, working positions are negative
+    // (manual 8.1: G0 B-420, G1 B-469.5, G38 B-472). Fusion WCS values are measured from the part zero and would be wrong.
+    if (!_useMachineFrame) {
+      error(subst(localize("Operation \"%1\" gives the sub-spindle positions relative to the part (feed plane '%2', chuck plane '%3'). " +
+        "The CMZ TA25YS B-axis needs machine values: in the operation set the feed plane and the chuck plane to the machine position option " +
+        "and enter B values read on the control (e.g. approach B-420, chuck B-472)."),
+        getOperationComment(), getParameter("operation:feedPlaneHeight_mode", "?"), getParameter("operation:pickPlaneHeight_mode", "?")));
+      return;
+    }
     subSpindleIsHome = false;
   }
   switch (_method) {
@@ -4431,46 +4570,32 @@ function moveSubSpindle(_method, _position, _feed, _useMachineFrame, _comment, _
   case RAPID:
     writeBlock(
       gMotionModal.format(0),
-      _useMachineFrame ? gFormat.format(53) : "",
       subOutput.format(_position),
       conditional(_comment, formatComment(_comment))
     );
     break;
-  case FEED:
-    var g53Code;
-    if (_useMachineFrame) {
-      switch (getProperty("useG53ForXfer")) {
-      case "g53":
-        writeBlock(gFormat.format(53), subOutput.format(_position));
-        break;
-      case "g532":
-        writeBlock(gMotionModal.format(1), gFormat.format(53.2), subOutput.format(_position), getFeed(_feed), conditional(_comment, formatComment(_comment)));
-        break;
-      case "linear":
-        writeBlock(gMotionModal.format(1), subOutput.format(_position), getFeed(_feed), conditional(_comment, formatComment(_comment)));
-        break;
-      case "error":
-        error(localize("The sub-spindle cannot be positioned using a feed rate when Machine Position output is used."));
-        return;
-      }
-      if (properties.useG53ForXfer == "error") {
-        error(localize("The sub-spindle cannot be positioned using a feed rate when Machine Position output is used."));
-        return;
-      }
-    } else {
-      writeBlock(gMotionModal.format(1), subOutput.format(_position), getFeed(_feed), conditional(_comment, formatComment(_comment)));
-    }
+  case FEED: // always a feed move in mm/min, never a rapid (the bar pull runs with the main chuck open)
+    gFeedModeModal.reset();
+    gMotionModal.reset();
+    writeBlock(
+      gFeedModeModal.format(getCode("FEED_MODE_UNIT_MIN", getSpindle(TOOL))),
+      gMotionModal.format(1),
+      subOutput.format(_position),
+      "F" + fpmFormat.format(_feed),
+      conditional(_comment, formatComment(_comment))
+    );
     break;
   case TORQUE: // CMZ G38 workpiece push check, includes clamping of the sub chuck (M357 keeps the main chuck clamped)
-    if (_useMachineFrame) {
-      error(localize("G38 cannot be used with machine positions. Use WCS positions for the chuck plane of the sub-spindle grab."));
-      return;
-    }
     gMotionModal.reset();
+    writeExplanation([
+      "G38 - B = PART CONTACT POSITION, F = PUSH FEED MM/MIN, KEEP IT SLOW",
+      "Q = POSITION TOLERANCE MM, T = PUSH FORCE KGF 200-600",
+      "M357 = KEEP THE MAIN CHUCK CLOSED, DO NOT REMOVE"
+    ]);
     writeBlock(
       gFormat.format(38),
       subOutput.format(_position),
-      "F" + fpmFormat.format(_feed),
+      "F" + fpmFormat.format(getProperty("transferPushFeed")), // slow push, not the Fusion approach feed
       "Q" + spatialFormat.format(getProperty("transferTolerance")),
       "T" + rpmFormat.format(getProperty("transferPushForce")),
       mFormat.format(357),
