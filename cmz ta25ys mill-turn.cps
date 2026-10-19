@@ -76,15 +76,21 @@
 //   M34 (or M33)      synchronise sub-spindle with main spindle
 //   G4 U1.            wait
 //   G0 B..            sub-spindle to the approach position
+//   Plain grab (default, "Use G38 push check" = No):
+//   G98 G1 B.. F..    feed to the chuck position
+//   M210              clamp the sub chuck
+//   With "Use G38 push check" = Yes (only with a stop behind the part):
 //   G98 G1 B.. F..    feed to 1 mm before the part
 //   G38 B.. F.. Q.. T.. M357
 //                     CMZ push check: pushes on the part, checks the force and
 //                     clamps the sub chuck. M357 keeps the MAIN chuck closed
-//                     (without M357 the G38 cycle would open it).
+//                     (without M357 the G38 cycle would open it). G38 feeds
+//                     until the force is reached, so without a stop the B-axis
+//                     runs to its limit.
 //   ... cut-off ...
 //   M40               check the part is really cut off (alarm FM41 if not) [9.21]
 //   M36               synchronisation off
-//   G28 B0            sub-spindle back home
+//   G53 G0 B0.        sub-spindle back home (machine B0; G28 B0 does not work)
 //
 // MANUAL NC ACTIONS (Fusion: Manual NC > Action, type the text below)
 //     partEject                  - eject the part at the end of the program
@@ -534,11 +540,11 @@ properties = {
   },
   transferUseTorque: {
     title      : "Use G38 push check for part transfer",
-    description: "Yes = the sub-spindle approaches to 1 mm from the part, then CMZ cycle G38 pushes against the part, checks the force and clamps the sub chuck (G38 ... M357 keeps the main chuck closed). No = plain G1 move and M210 clamp.",
+    description: "No = plain grab: G0 to the approach position, G1 to the chuck position, then M210 clamps the sub chuck. Yes = CMZ cycle G38 pushes the part against the sub chuck, checks the force and clamps (G38 ... M357 keeps the main chuck closed). Only use Yes when there is a stop behind the part in the sub chuck: G38 feeds until the push force is reached, so without a stop the B-axis runs into its limit.",
     group      : "cmzTransfer",
     order      : 2,
     type       : "boolean",
-    value      : true,
+    value      : false,
     scope      : "post"
   },
   transferPushForce: {
@@ -4555,16 +4561,19 @@ function moveSubSpindle(_method, _position, _feed, _useMachineFrame, _comment, _
   switch (_method) {
   case HOME:
     if (subSpindleIsHome) {
-      break; // already at home, avoid a G28 B0 at every tool change
+      break; // already at home, avoid a G53 B0 at every tool change
     }
     subSpindleIsHome = true;
     if ((getProperty("useTailStock") == "false") || !machineState.tailstockIsActive) { // don't retract B-axis if used as a tailstock
+      // G28 B0 does not return the sub-spindle on this machine, so B0 is commanded in machine coordinates
+      // (manual 9.6 / 9.33 position the B-axis with G53 B, B0 = sub-spindle home)
       writeBlock(
-        gMotionModal.format(0),
-        gFormat.format(28),
+        gFormat.format(53),
+        gFormat.format(0),
         subOutput.format(0),
         conditional(_comment, formatComment(_comment))
       );
+      gMotionModal.reset();
     }
     break;
   case RAPID:
