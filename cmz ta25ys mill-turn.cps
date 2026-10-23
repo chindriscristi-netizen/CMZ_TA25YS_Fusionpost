@@ -4966,9 +4966,7 @@ function onClose() {
     }
   }
 
-  if (!getProperty("optimizeCAxisSelect")) {
-    cAxisEngageModal.reset();
-  }
+  // no modal reset here: M81 is only output when the C-axis is still engaged
   if (liveTool) {
     writeBlock(cAxisEngageModal.format(getCode("ENABLE_C_AXIS", getSpindle(PART))));
     onCommand(COMMAND_UNLOCK_MULTI_AXIS);
@@ -4981,7 +4979,9 @@ function onClose() {
     ejectPart();
   }
 
-  writeBlock(gFormat.format(54));
+  if (currentWorkOffset > 1) { // restore G54 only when another work offset was used (0 and 1 are both G54)
+    writeBlock(gFormat.format(54));
+  }
 
   // Process Manual NC commands
   executeManualNC();
