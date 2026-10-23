@@ -1628,6 +1628,29 @@ function onOpen() {
     machineState.subChuckIsClamped = true;
     break;
   }
+
+  // skip the sub-spindle return blocks when the program never uses the sub-spindle
+  if (!isSubSpindleUsed()) {
+    subSpindleIsHome = true;
+  }
+}
+
+/** Returns true if any operation works on, moves or transfers to the sub-spindle */
+function isSubSpindleUsed() {
+  var subSpindleCycles = ["secondary-spindle-grab", "secondary-spindle-pull", "secondary-spindle-return", "stock-transfer"];
+  for (var i = 0; i < getNumberOfSections(); ++i) {
+    var section = getSection(i);
+    if ((section.spindle == SPINDLE_SECONDARY) || section.tailstock ||
+        /SecondarySpindle|StockTransfer/i.test(section.getParameter("operation-strategy", ""))) {
+      return true;
+    }
+    for (var j = 0; j < subSpindleCycles.length; ++j) {
+      if ((typeof section.hasCycle == "function") && section.hasCycle(subSpindleCycles[j])) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function onComment(message) {
