@@ -7,6 +7,13 @@
   and adapted to the CMZ TA/TD Programming Manual (G codes type A) V1.18.
 
   FORKID {9E8EC74C-A57B-4CEC-B410-32506D44CDEC}
+
+  VERSIONS (postVersion below, also shown in Fusion and at the top of every program)
+    1.0  first CMZ TA25YS version
+    1.1  CMZ embedded P format for program looping, cycle comments, B-axis transfer
+    1.2  sub-spindle return with G53 B0, plain grab without G38 by default
+    1.3  no redundant M81 and G54 at program end
+    1.4  no sub-spindle return when the program never uses the sub-spindle
 */
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -118,7 +125,8 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-description = "CMZ TA25YS Mill/Turn (Fanuc)";
+var postVersion = "1.4"; // raise for every change and add a line to VERSIONS at the top
+description = "CMZ TA25YS Mill/Turn (Fanuc) v" + postVersion;
 vendor = "CMZ";
 vendorUrl = "https://www.cmz.com";
 legal = "Copyright (C) 2012-2026 by Autodesk, Inc.";
@@ -1478,6 +1486,7 @@ function onOpen() {
     error(localize("Program name has not been specified."));
     return;
   }
+  writeComment("CMZ TA25YS POST V" + postVersion); // shows which post made the program
 
   if (getProperty("writeVersion")) {
     if ((typeof getHeaderVersion == "function") && getHeaderVersion()) {
