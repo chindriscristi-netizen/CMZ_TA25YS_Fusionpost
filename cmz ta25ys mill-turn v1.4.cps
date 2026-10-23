@@ -125,7 +125,7 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-var postVersion = "1.4"; // raise for every change and add a line to VERSIONS at the top
+var postVersion = "1.4"; // raise for every change, add a line to VERSIONS at the top and rename the file to match
 description = "CMZ TA25YS Mill/Turn (Fanuc) v" + postVersion;
 vendor = "CMZ";
 vendorUrl = "https://www.cmz.com";
